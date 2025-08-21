@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FABARO POS</title>
+  <meta name="description" content="FABARO POS — Simple, fast web POS for restaurant & retail with QRIS + Bluetooth thermal printing." />
+
+  <!-- Tailwind (CDN for quick deploy) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { fontFamily: { sans: ["Inter", "system-ui", "sans-serif"], }, colors: { brand: { 50:'#eef2ff',100:'#e0e7ff',200:'#c7d2fe',300:'#a5b4fc',400:'#818cf8',500:'#6366f1',600:'#4f46e5',700:'#4338ca',800:'#3730a3',900:'#312e81'}, } } } }
+  </script>
+
+  <!-- Icons -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='24' fill='%236366f1'/%3E%3Ctext x='50%' y='58%' text-anchor='middle' font-size='64' fill='white' font-family='Arial, Helvetica, sans-serif' dy='.35em'%3EF%3C/text%3E%3C/svg%3E" />
+
+  <!-- QR Code library (small, stable) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha512-MnS1G0o3f2Zk9xgqvYkL8JjQJvQ2wKfFz3b+7oV4yQ6fQ2q8PrqH2cNvM7XbGv6KpM6i5w6KkQ4qT1VQxQ2G8w==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <style>
+    /* Print-specific receipt styling fallback */
+    @media print {
+      body { margin: 0; }
+      #app { display: none; }
+      #print-receipt { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div id="app" class="min-h-screen flex flex-col">
+    <!-- Topbar -->
+    <header class="sticky top-0 z-30 border-b bg-white/80 backdrop-blur">
+      <div class="mx-auto max-w-7xl px-4 py-3 flex items-center gap-3">
+        <div class="flex items-center gap-3">
+          <div class="size-9 rounded-xl bg-brand-600 text-white grid place-items-center font-bold">F</div>
+          <div>
+            <div class="text-lg font-semibold">FABARO POS</div>
+            <div class="text-[11px] text-slate-500">Simple · Restaurant & Retail · QRIS · Bluetooth Print</div>
+          </div>
+        </div>
+        <div class="ml-auto flex items-center gap-2">
+          <button id="btnConnectPrinter" class="px-3 py-2 rounded-lg border text-slate-700 hover:bg-slate-100" title="Hubungkan printer thermal via Bluetooth">🔗 Hubungkan Printer</button>
+          <button id="btnTestPrint" class="px-3 py-2 rounded-lg border text-slate-700 hover:bg-slate-100">🧾 Tes Cetak</button>
+          <button id="btnSettings" class="px-3 py-2 rounded-lg border text-slate-700 hover:bg-slate-100">⚙️ Pengaturan</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="mx-auto w-full max-w-7xl grow grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+      <!-- Catalog -->
+      <section class="md:col-span-2">
+        <div class="bg-white rounded-2xl shadow-sm border p-4">
+          <div class="flex flex-wrap items-center gap-3">
+            <input id="searchInput" type="search" placeholder="Cari produk/menu…" class="w-full md:w-1/2 px-4 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            <button id="btnAddProduct" class="ml-auto px-3 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700">＋ Produk</button>
+          </div>
+          <div id="categoryChips" class="mt-3 flex flex-wrap gap-2"></div>
+          <div id="productGrid" class="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"></div>
+        </div>
+      </section>
+
+      <!-- Cart -->
+      <aside class="md:col-span-1">
+        <div class="bg-white rounded-2xl shadow-sm border p-4 sticky top-[74px]">
+          <div class="flex items-center gap-2">
+            <select id="orderType" class="px-3 py-2 rounded-lg border">
+              <option value="dinein">Makan di Tempat</option>
+              <option value="takeaway">Bungkus</option>
+              <option value="delivery">Delivery</option>
+            </select>
+            <input id="tableNo" class="px-3 py-2 rounded-lg border w-32" placeholder="No. Meja" />
+          </div>
+
+          <div id="cartList" class="mt-4 divide-y"></div>
+
+          <div class="mt-3 space-y-2 text-sm">
+            <div class="flex justify-between"><span>Subtotal</span><span id="subtotal">Rp0</span></div>
+            <div class="flex justify-between"><span>PPN (<span id="taxRateLabel">0%</span>)</span><span id="taxAmount">Rp0</span></div>
+            <div class="flex justify-between"><span>Service (<span id="svcRateLabel">0%</span>)</span><span id="svcAmount">Rp0</span></div>
+            <div class="flex justify-between font-semibold text-lg"><span>Total</span><span id="grandTotal">Rp0</span></div>
+          </div>
+
+          <div class="mt-4 grid grid-cols-2 gap-2">
+            <button id="btnPayCash" class="px-3 py-3 rounded-xl bg-slate-800 text-white hover:bg-slate-900">Tunai</button>
+            <button id="btnPayQRIS" class="px-3 py-3 rounded-xl bg-brand-600 text-white hover:bg-brand-700">QRIS</button>
+            <button id="btnClearCart" class="col-span-2 px-3 py-2 rounded-lg border">Kosongkan</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="border-t bg-white">
+      <div class="mx-auto max-w-7xl px-4 py-3 text-xs text-slate-500 flex items-center gap-2">
+        <span>© <span id="year"></span> FABARO POS</span>
+        <span class="opacity-50">•</span>
+        <span>Powered by MUKEMEN.AI</span>
+        <span class="ml-auto" id="printerStatus">Printer: <span class="font-medium">Belum terhubung</span></span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Hidden print container (fallback printing) -->
+  <div id="print-receipt" class="hidden p-4">
+    <pre id="print-receipt-content" class="text-[12px]"></pre>
+  </div>
+
+  <!-- MODALS -->
+  <dialog id="modalProduct" class="rounded-2xl shadow-xl w-[92vw] max-w-xl">
+    <form method="dialog" class="p-4">
+      <h3 class="text-lg font-semibold">Tambah/Ubah Produk</h3>
+      <div class="mt-3 grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-sm">Nama</label>
+          <input id="prodName" class="w-full px-3 py-2 rounded-lg border" required />
+        </div>
+        <div>
+          <label class="text-sm">Harga (IDR)</label>
+          <input id="prodPrice" type="number" min="0" class="w-full px-3 py-2 rounded-lg border" required />
+        </div>
+        <div>
+          <label class="text-sm">Kategori</label>
+          <input id="prodCategory" class="w-full px-3 py-2 rounded-lg border" placeholder="contoh: Makanan, Minuman, Barang" />
+        </div>
+        <div>
+          <label class="text-sm">SKU/Barcode</label>
+          <input id="prodSku" class="w-full px-3 py-2 rounded-lg border" />
+        </div>
+      </div>
+      <div class="mt-4 flex justify-end gap-2">
+        <button id="btnDeleteProduct" type="button" class="px-3 py-2 rounded-lg border text-red-600 hidden">Hapus</button>
+        <button class="px-3 py-2 rounded-lg border">Batal</button>
+        <button id="btnSaveProduct" class="px-3 py-2 rounded-lg bg-brand-600 text-white">Simpan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modalQRIS" class="rounded-2xl shadow-xl w-[92vw] max-w-sm">
+    <form method="dialog" class="p-4">
+      <h3 class="text-lg font-semibold">QRIS Pembayaran</h3>
+      <div id="qrisBox" class="mt-3 grid place-items-center">
+        <div id="qris" class="bg-white p-3 border rounded-xl"></div>
+      </div>
+      <div class="mt-3 text-center text-sm text-slate-500">
+        Tunjukkan QR ini ke pelanggan untuk dibayar via aplikasi pembayaran.
+      </div>
+      <div class="mt-4 flex justify-end">
+        <button class="px-3 py-2 rounded-lg border">Tutup</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modalSettings" class="rounded-2xl shadow-xl w-[92vw] max-w-2xl">
+    <form method="dialog" class="p-4">
+      <h3 class="text-lg font-semibold">Pengaturan</h3>
+      <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-slate-50 rounded-xl p-3 border">
+          <div class="font-medium">Umum</div>
+          <label class="text-sm block mt-2">Nama Toko</label>
+          <input id="setStoreName" class="w-full px-3 py-2 rounded-lg border" placeholder="FABARO Store" />
+          <label class="text-sm block mt-2">Alamat</label>
+          <input id="setStoreAddr" class="w-full px-3 py-2 rounded-lg border" placeholder="Jl. Contoh No. 123, Jakarta" />
+          <div class="grid grid-cols-2 gap-2 mt-2">
+            <div>
+              <label class="text-sm">PPN %</label>
+              <input id="setTax" type="number" min="0" class="w-full px-3 py-2 rounded-lg border" placeholder="11" />
+            </div>
+            <div>
+              <label class="text-sm">Service %</label>
+              <input id="setSvc" type="number" min="0" class="w-full px-3 py-2 rounded-lg border" placeholder="0" />
+            </div>
+          </div>
+          <div class="mt-2">
+            <label class="text-sm">Catatan Kaki Struk</label>
+            <textarea id="setFooter" class="w-full px-3 py-2 rounded-lg border" placeholder="Terima kasih sudah berbelanja!"></textarea>
+          </div>
+        </div>
+        <div class="bg-slate-50 rounded-xl p-3 border">
+          <div class="font-medium">QRIS (Placeholder)</div>
+          <p class="text-xs text-slate-600 mt-1">Untuk QRIS dinamis real-time, integrasikan API penyedia (mis. Xendit, Midtrans, Duitku). Sementara ini, app akan membuat QR berisi link/invoice sederhana.</p>
+          <label class="text-sm block mt-2">Base URL Invoice</label>
+          <input id="setQrisBase" class="w-full px-3 py-2 rounded-lg border" placeholder="https://pay.example/qris" />
+          <label class="text-sm block mt-2">Merchant Name (opsional)</label>
+          <input id="setQrisMerchant" class="w-full px-3 py-2 rounded-lg border" placeholder="FABARO POS" />
+          <button id="btnSaveSettings" type="button" class="mt-3 px-3 py-2 rounded-lg bg-brand-600 text-white">Simpan Pengaturan</button>
+          <button id="btnExportData" type="button" class="mt-3 px-3 py-2 rounded-lg border">Export Data (JSON)</button>
+          <input id="fileImport" type="file" accept="application/json" class="hidden" />
+          <button id="btnImportData" type="button" class="mt-3 px-3 py-2 rounded-lg border">Import Data</button>
+        </div>
+      </div>
+      <div class="mt-4 flex justify-end">
+        <button class="px-3 py-2 rounded-lg border">Tutup</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+  // ------------------------------
+  // Utilities
+  // ------------------------------
+  const $ = (q) => document.querySelector(q);
+  const $$ = (q) => document.querySelectorAll(q);
+  const fmtIDR = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(n || 0);
+  const uid = () => Math.random().toString(36).slice(2,10);
+
+  // ------------------------------
+  // State & Storage
+  // ------------------------------
+  const DB = {
+    load(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } },
+    save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+  };
+
+  const state = {
+    products: DB.load('fabaro_products', [
+      {id: uid(), name:'Nasi Goreng', price: 25000, category:'Makanan', sku:''},
+      {id: uid(), name:'Es Teh Manis', price: 8000, category:'Minuman', sku:''},
+      {id: uid(), name:'Kopi Susu', price: 18000, category:'Minuman', sku:''},
+      {id: uid(), name:'Mie Ayam', price: 22000, category:'Makanan', sku:''},
+      {id: uid(), name:'Air Mineral', price: 6000, category:'Minuman', sku:''},
+      {id: uid(), name:'Bakso Rawit Pak Fajar', price: 28000, category:'Makanan', sku:''},
+      {id: uid(), name:'Tisu', price: 3000, category:'Barang', sku:''},
+    ]),
+    cart: [],
+    settings: DB.load('fabaro_settings', {
+      storeName: 'FABARO Store',
+      storeAddr: 'Jakarta, Indonesia',
+      taxRate: 11,
+      svcRate: 0,
+      footer: 'Terima kasih sudah berbelanja!',
+      qrisBase: 'https://pay.example/qris',
+      qrisMerchant: 'FABARO POS'
+    }),
+    transactions: DB.load('fabaro_tx', []),
+    printer: { device:null, server:null, service:null, characteristic:null }
+  };
+
+  // Persist initial seed only once
+  DB.save('fabaro_products', state.products);
+
+  // ------------------------------
+  // Render: Categories & Products
+  // ------------------------------
+  const renderCategories = () => {
+    const cats = Array.from(new Set(state.products.map(p=>p.category || 'Lainnya')));
+    const chips = ['Semua', ...cats].map(cat => `<button class="px-3 py-1 rounded-full border text-sm" data-cat="${cat}">${cat}</button>`).join('');
+    $('#categoryChips').innerHTML = chips;
+    $$('#categoryChips button').forEach(btn => btn.addEventListener('click', ()=> {
+      const val = btn.dataset.cat;
+      $('#searchInput').value = '';
+      renderProducts(val === 'Semua' ? null : val);
+    }));
+  };
+
+  const renderProducts = (categoryFilter=null) => {
+    const q = $('#searchInput').value.toLowerCase().trim();
+    const list = state.products.filter(p => {
+      const hit = p.name.toLowerCase().includes(q) || (p.sku||'').toLowerCase().includes(q);
+      const catOk = !categoryFilter || (p.category||'Lainnya') === categoryFilter;
+      return hit && catOk;
+    });
+    $('#productGrid').innerHTML = list.map(p => `
+      <button class="group rounded-xl border hover:shadow-sm p-3 text-left" data-id="${p.id}">
+        <div class="aspect-square rounded-lg bg-slate-100 grid place-items-center text-slate-400 text-5xl">🍽️</div>
+        <div class="mt-2 font-medium leading-tight">${p.name}</div>
+        <div class="text-sm text-slate-500">${p.category||'Lainnya'}</div>
+        <div class="mt-1 text-brand-700 font-semibold">${fmtIDR(p.price)}</div>
+      </button>
+    `).join('');
+    $$('#productGrid [data-id]').forEach(el => el.addEventListener('click', () => addToCart(el.dataset.id)));
+  };
+
+  // ------------------------------
+  // Cart
+  // ------------------------------
+  function addToCart(id) {
+    const p = state.products.find(x=>x.id===id);
+    if (!p) return;
+    const line = state.cart.find(x=>x.id===id);
+    if (line) line.qty += 1; else state.cart.push({id:p.id, name:p.name, price:p.price, qty:1});
+    renderCart();
+  }
+  function removeFromCart(id) { state.cart = state.cart.filter(x=>x.id!==id); renderCart(); }
+  function changeQty(id, delta) { const line = state.cart.find(x=>x.id===id); if (!line) return; line.qty = Math.max(1, line.qty + delta); renderCart(); }
+
+  function calcTotals() {
+    const sub = state.cart.reduce((s,l)=> s + l.price*l.qty, 0);
+    const tax = Math.round(sub * (state.settings.taxRate||0)/100);
+    const svc = Math.round(sub * (state.settings.svcRate||0)/100);
+    return { sub, tax, svc, total: sub + tax + svc };
+  }
+
+  function renderCart() {
+    const html = state.cart.map(l=>`
+      <div class="py-2 flex items-center gap-2">
+        <div class="grow">
+          <div class="font-medium">${l.name}</div>
+          <div class="text-xs text-slate-500">${fmtIDR(l.price)}</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="px-2 py-1 rounded border" data-qty="-1" data-id="${l.id}">−</button>
+          <div class="w-6 text-center">${l.qty}</div>
+          <button class="px-2 py-1 rounded border" data-qty="1" data-id="${l.id}">＋</button>
+          <button class="px-2 py-1 rounded border text-red-600" data-del="${l.id}">✕</button>
+        </div>
+      </div>
+    `).join('') || '<div class="text-sm text-slate-500">Keranjang kosong.</div>';
+    $('#cartList').innerHTML = html;
+
+    // bind
+    $$('#cartList [data-qty]').forEach(b=> b.addEventListener('click', ()=> changeQty(b.dataset.id, Number(b.dataset.qty)) ));
+    $$('#cartList [data-del]').forEach(b=> b.addEventListener('click', ()=> removeFromCart(b.dataset.del)) );
+
+    // totals
+    const t = calcTotals();
+    $('#subtotal').textContent = fmtIDR(t.sub);
+    $('#taxRateLabel').textContent = (state.settings.taxRate||0) + '%';
+    $('#svcRateLabel').textContent = (state.settings.svcRate||0) + '%';
+    $('#taxAmount').textContent = fmtIDR(t.tax);
+    $('#svcAmount').textContent = fmtIDR(t.svc);
+    $('#grandTotal').textContent = fmtIDR(t.total);
+  }
+
+  $('#btnClearCart').addEventListener('click', ()=> { state.cart = []; renderCart(); });
+
+  // ------------------------------
+  // Product CRUD
+  // ------------------------------
+  let editingProductId = null;
+  $('#btnAddProduct').addEventListener('click', () => {
+    editingProductId = null;
+    $('#prodName').value = '';
+    $('#prodPrice').value = '';
+    $('#prodCategory').value = '';
+    $('#prodSku').value = '';
+    $('#btnDeleteProduct').classList.add('hidden');
+    $('#modalProduct').showModal();
+  });
+
+  $('#productGrid').addEventListener('contextmenu', (e) => {
+    // Right-click on product to edit
+    const card = e.target.closest('[data-id]');
+    if (!card) return;
+    e.preventDefault();
+    const p = state.products.find(x=>x.id===card.dataset.id);
+    if (!p) return;
+    editingProductId = p.id;
+    $('#prodName').value = p.name;
+    $('#prodPrice').value = p.price;
+    $('#prodCategory').value = p.category || '';
+    $('#prodSku').value = p.sku || '';
+    $('#btnDeleteProduct').classList.remove('hidden');
+    $('#modalProduct').showModal();
+  });
+
+  $('#btnSaveProduct').addEventListener('click', (e)=> {
+    e.preventDefault();
+    const item = {
+      name: $('#prodName').value.trim(),
+      price: Number($('#prodPrice').value||0),
+      category: $('#prodCategory').value.trim()||'Lainnya',
+      sku: $('#prodSku').value.trim()
+    };
+    if (!item.name || !(item.price>=0)) return;
+    if (editingProductId) {
+      const idx = state.products.findIndex(x=>x.id===editingProductId);
+      state.products[idx] = {...state.products[idx], ...item};
+    } else {
+      state.products.push({id: uid(), ...item});
+    }
+    DB.save('fabaro_products', state.products);
+    $('#modalProduct').close();
+    renderCategories();
+    renderProducts();
+  });
+
+  $('#btnDeleteProduct').addEventListener('click', ()=> {
+    if (!editingProductId) return;
+    state.products = state.products.filter(x=>x.id!==editingProductId);
+    DB.save('fabaro_products', state.products);
+    $('#modalProduct').close();
+    renderCategories();
+    renderProducts();
+  });
+
+  // ------------------------------
+  // Payments
+  // ------------------------------
+  function makeInvoice() {
+    const t = calcTotals();
+    const inv = {
+      id: 'INV-'+Date.now(),
+      createdAt: new Date().toISOString(),
+      type: $('#orderType').value,
+      table: $('#tableNo').value.trim(),
+      items: JSON.parse(JSON.stringify(state.cart)),
+      totals: t
+    };
+    return inv;
+  }
+
+  function saveTransaction(inv, method) {
+    state.transactions.push({...inv, method});
+    DB.save('fabaro_tx', state.transactions);
+  }
+
+  // Cash
+  $('#btnPayCash').addEventListener('click', async ()=>{
+    if (state.cart.length===0) return alert('Keranjang kosong.');
+    const inv = makeInvoice();
+    saveTransaction(inv, 'cash');
+    await printReceiptESC(inv);
+    state.cart = []; renderCart();
+    alert('Pembayaran tunai selesai.');
+  });
+
+  // QRIS: create a simple link-based QR for now
+  $('#btnPayQRIS').addEventListener('click', ()=>{
+    if (state.cart.length===0) return alert('Keranjang kosong.');
+    const inv = makeInvoice();
+    const url = new URL(state.settings.qrisBase||'https://pay.example/qris');
+    url.searchParams.set('invoice_id', inv.id);
+    url.searchParams.set('amount', inv.totals.total);
+    url.searchParams.set('merchant', state.settings.qrisMerchant||'FABARO POS');
+    // Render QR
+    const box = $('#qris');
+    box.innerHTML='';
+    new QRCode(box, { text: url.toString(), width: 256, height: 256, correctLevel: QRCode.CorrectLevel.M });
+    $('#modalQRIS').showModal();
+
+    // Mark as pending; merchant confirms after payment on provider dashboard / webhook (requires backend)
+    saveTransaction(inv, 'qris-pending');
+  });
+
+  // ------------------------------
+  // Settings
+  // ------------------------------
+  $('#btnSettings').addEventListener('click', ()=>{
+    $('#setStoreName').value = state.settings.storeName||'';
+    $('#setStoreAddr').value = state.settings.storeAddr||'';
+    $('#setTax').value = state.settings.taxRate||0;
+    $('#setSvc').value = state.settings.svcRate||0;
+    $('#setFooter').value = state.settings.footer||'';
+    $('#setQrisBase').value = state.settings.qrisBase||'';
+    $('#setQrisMerchant').value = state.settings.qrisMerchant||'';
+    $('#modalSettings').showModal();
+  });
+  $('#btnSaveSettings').addEventListener('click', ()=>{
+    state.settings.storeName = $('#setStoreName').value.trim()||'FABARO Store';
+    state.settings.storeAddr = $('#setStoreAddr').value.trim()||'Jakarta, Indonesia';
+    state.settings.taxRate = Number($('#setTax').value||0);
+    state.settings.svcRate = Number($('#setSvc').value||0);
+    state.settings.footer = $('#setFooter').value.trim();
+    state.settings.qrisBase = $('#setQrisBase').value.trim();
+    state.settings.qrisMerchant = $('#setQrisMerchant').value.trim();
+    DB.save('fabaro_settings', state.settings);
+    renderCart();
+    alert('Pengaturan disimpan.');
+  });
+
+  // Export/Import JSON
+  $('#btnExportData').addEventListener('click', ()=>{
+    const data = {
+      products: state.products,
+      settings: state.settings,
+      transactions: state.transactions
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `fabaro-pos-backup-${Date.now()}.json`;
+    a.click();
+  });
+  $('#btnImportData').addEventListener('click', ()=> $('#fileImport').click());
+  $('#fileImport').addEventListener('change', async (e)=>{
+    const file = e.target.files[0]; if (!file) return;
+    const text = await file.text();
+    try {
+      const data = JSON.parse(text);
+      if (data.products) { state.products = data.products; DB.save('fabaro_products', state.products); }
+      if (data.settings) { state.settings = data.settings; DB.save('fabaro_settings', state.settings); }
+      if (data.transactions) { state.transactions = data.transactions; DB.save('fabaro_tx', state.transactions); }
+      renderCategories(); renderProducts(); renderCart();
+      alert('Import sukses.');
+    } catch(err) { alert('Gagal import: '+err.message); }
+  });
+
+  // ------------------------------
+  // Printing (ESC/POS over Web Bluetooth or fallback)
+  // ------------------------------
+  const esc = {
+    init: () => new Uint8Array([0x1B,0x40]),
+    align: (n) => new Uint8Array([0x1B,0x61, n]), // 0 left,1 center,2 right
+    boldOn: () => new Uint8Array([0x1B,0x45,1]),
+    boldOff: () => new Uint8Array([0x1B,0x45,0]),
+    size: (w,h) => new Uint8Array([0x1D,0x21, (w<<4)|h]), // 0..7
+    feed: (n) => new Uint8Array([0x1B,0x64,n]),
+    cut: () => new Uint8Array([0x1D,0x56,0x00])
+  };
+
+  function strToBytes(str) {
+    // Basic ASCII only; for extended chars, map as needed
+    const bytes = new Uint8Array(str.length);
+    for (let i=0;i<str.length;i++) bytes[i] = str.charCodeAt(i) & 0xFF;
+    return bytes;
+  }
+
+  function concatBytes(...arrs) {
+    const total = arrs.reduce((s,a)=> s + a.length, 0);
+    const out = new Uint8Array(total);
+    let o=0; for (const a of arrs) { out.set(a, o); o += a.length; }
+    return out;
+  }
+
+  async function sendToPrinter(data) {
+    // Try BLE GATT write
+    const ch = state.printer.characteristic;
+    if (ch) {
+      // chunking
+      const MAX = 180; // many BLE firmwares limit 180-200 bytes per write
+      for (let i=0;i<data.length;i+=MAX) {
+        await ch.writeValueWithoutResponse(data.slice(i, i+MAX));
+      }
+      return true;
+    }
+    return false;
+  }
+
+  async function printReceiptESC(inv) {
+    const store = state.settings.storeName;
+    const addr = state.settings.storeAddr;
+    const t = inv.totals;
+
+    let lines = [];
+    lines.push("==============================\n");
+    lines.push(store + "\n");
+    lines.push(addr + "\n");
+    lines.push("==============================\n");
+    lines.push(inv.id + "\n");
+    lines.push(new Date(inv.createdAt).toLocaleString('id-ID') + "\n");
+    lines.push("Tipe: "+inv.type + (inv.table? ("  Meja: "+inv.table):'') + "\n");
+    lines.push("------------------------------\n");
+    inv.items.forEach(it=>{
+      const name = it.name.substring(0,20);
+      const qty = it.qty;
+      const price = it.price*qty;
+      const left = `${name} x${qty}`;
+      const right = fmtIDR(price);
+      const pad = Math.max(0, 30 - (left.length + right.length));
+      lines.push(left + ' '.repeat(pad) + right + "\n");
+    });
+    lines.push("------------------------------\n");
+    const row = (label, val) => {
+      const left = label; const right = fmtIDR(val);
+      const pad = Math.max(0, 30 - (left.length + right.length));
+      return left + ' '.repeat(pad) + right + "\n";
+    };
+    lines.push(row('Subtotal', t.sub));
+    lines.push(row(`PPN ${state.settings.taxRate||0}%`, t.tax));
+    lines.push(row(`Service ${state.settings.svcRate||0}%`, t.svc));
+    lines.push(row('TOTAL', t.total));
+    lines.push("------------------------------\n");
+    lines.push((state.settings.footer||'Terima kasih!')+"\n");
+    lines.push("Powered by MUKEMEN.AI\n");
+    lines.push("\n\n");
+
+    const textBytes = strToBytes(lines.join(''));
+    const payload = concatBytes(
+      esc.init(), esc.align(1), esc.boldOn(), esc.size(1,1),
+      strToBytes(store+"\n"), esc.size(0,0), esc.boldOff(),
+      esc.align(0), textBytes, esc.feed(3), esc.cut()
+    );
+
+    const ok = await sendToPrinter(payload);
+    if (!ok) {
+      // Fallback: print via browser
+      $('#print-receipt-content').textContent = lines.join('');
+      window.print();
+    }
+  }
+
+  $('#btnTestPrint').addEventListener('click', async ()=>{
+    const inv = { id:'TEST-'+Date.now(), createdAt:new Date().toISOString(), type:'test', table:'', items:[{name:'Test Item', price:1000, qty:1}], totals:{sub:1000,tax:0,svc:0,total:1000} };
+    await printReceiptESC(inv);
+  });
+
+  // ------------------------------
+  // Bluetooth pairing
+  // ------------------------------
+  function setPrinterStatus(text) { $('#printerStatus').innerHTML = 'Printer: <span class="font-medium">'+text+'</span>'; }
+
+  $('#btnConnectPrinter').addEventListener('click', async ()=>{
+    try {
+      const device = await navigator.bluetooth.requestDevice({
+        // Many BLE thermal printers expose custom services; try accepting all and filter later
+        acceptAllDevices: true,
+        optionalServices: [0x180F, 0x180A, 0xFFE0, 0xFFF0]
+      });
+      state.printer.device = device;
+      const server = await device.gatt.connect();
+      state.printer.server = server;
+
+      // Heuristic: scan primary services and find a writable characteristic
+      const services = await server.getPrimaryServices();
+      let writable = null;
+      for (const svc of services) {
+        const chars = await svc.getCharacteristics();
+        for (const ch of chars) {
+          const props = ch.properties;
+          if (props.writeWithoutResponse || props.write) { writable = ch; break; }
+        }
+        if (writable) { state.printer.service = svc; break; }
+      }
+      if (!writable) throw new Error('Tidak menemukan karakteristik tulis pada printer BLE.');
+      state.printer.characteristic = writable;
+      setPrinterStatus('Terhubung');
+      alert('Printer terhubung. Anda bisa Tes Cetak.');
+    } catch (err) {
+      console.error(err);
+      alert('Gagal konek printer: '+ err.message);
+      setPrinterStatus('Belum terhubung');
+    }
+  });
+
+  // ------------------------------
+  // Search and init
+  // ------------------------------
+  $('#searchInput').addEventListener('input', ()=> renderProducts());
+  renderCategories();
+  renderProducts();
+  renderCart();
+  $('#year').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>
