@@ -25,6 +25,10 @@
       #app { display: none; }
       #print-receipt { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     }
+    /* Mobile helpers */
+    html, body { overscroll-behavior: none; }
+    body { touch-action: manipulation; }
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
@@ -48,7 +52,7 @@
     </header>
 
     <!-- Main -->
-    <main class="mx-auto w-full max-w-7xl grow grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+    <main class="mx-auto w-full max-w-7xl grow grid grid-cols-1 md:grid-cols-3 gap-4 p-4 pb-24 md:pb-4">
       <!-- Catalog -->
       <section class="md:col-span-2">
         <div class="bg-white rounded-2xl shadow-sm border p-4">
@@ -63,7 +67,7 @@
 
       <!-- Cart -->
       <aside class="md:col-span-1">
-        <div class="bg-white rounded-2xl shadow-sm border p-4 sticky top-[74px]">
+        <div class="bg-white rounded-2xl shadow-sm border p-4 md:sticky md:top-[74px]">
           <div class="flex items-center gap-2">
             <select id="orderType" class="px-3 py-2 rounded-lg border">
               <option value="dinein">Makan di Tempat</option>
@@ -90,6 +94,18 @@
         </div>
       </aside>
     </main>
+
+    <!-- Mobile bottom bar -->
+    <div id="mobileBar" class="fixed md:hidden bottom-0 inset-x-0 border-t bg-white/95 backdrop-blur z-40 safe-bottom">
+      <div class="mx-auto max-w-7xl px-4 py-2 flex items-center gap-3">
+        <div class="text-sm">
+          <div class="text-slate-500 leading-tight">Total</div>
+          <div id="mbGrand" class="font-semibold text-base">Rp0</div>
+        </div>
+        <button id="mbPayQris" class="ml-auto px-4 py-2 rounded-xl bg-brand-600 text-white">Bayar QRIS</button>
+        <button id="mbPayCash" class="px-4 py-2 rounded-xl bg-slate-800 text-white">Tunai</button>
+      </div>
+    </div>
 
     <footer class="border-t bg-white">
       <div class="mx-auto max-w-7xl px-4 py-3 text-xs text-slate-500 flex items-center gap-2">
@@ -320,6 +336,7 @@
     $('#taxAmount').textContent = fmtIDR(t.tax);
     $('#svcAmount').textContent = fmtIDR(t.svc);
     $('#grandTotal').textContent = fmtIDR(t.total);
+    const mb = $('#mbGrand'); if (mb) mb.textContent = fmtIDR(t.total);
   }
 
   $('#btnClearCart').addEventListener('click', ()=> { state.cart = []; renderCart(); });
@@ -630,6 +647,10 @@
   renderCategories();
   renderProducts();
   renderCart();
+  // Mobile quick pay buttons
+  const mbQ = $('#mbPayQris'), mbC = $('#mbPayCash');
+  if (mbQ) mbQ.addEventListener('click', ()=> $('#btnPayQRIS').click());
+  if (mbC) mbC.addEventListener('click', ()=> $('#btnPayCash').click());
   $('#year').textContent = new Date().getFullYear();
   </script>
 </body>
